@@ -241,16 +241,19 @@ CARDS.forEach(c => {
   b.onclick = () => myId && fetch("/api/vote", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: myId, value: c }),
-  });
+  }).then(refreshState);
   $("cards").appendChild(b);
 });
 
-$("revealBtn").onclick = () => fetch("/api/reveal", { method: "POST" });
-$("nextBtn").onclick = () => fetch("/api/next", { method: "POST" });
+function refreshState() {
+  return fetch("/api/state").then(r => r.json()).then(render);
+}
+$("revealBtn").onclick = () => fetch("/api/reveal", { method: "POST" }).then(refreshState);
+$("nextBtn").onclick = () => fetch("/api/next", { method: "POST" }).then(refreshState);
 $("saveQ").onclick = () => fetch("/api/question", {
   method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ question: $("question").value }),
-});
+}).then(refreshState);
 
 // --- Live state ---
 function render(s) {

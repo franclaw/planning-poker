@@ -40,6 +40,8 @@ test.describe('Planning Poker — Business Wife Edition', () => {
     await joinAs(page, 'Coco');
     await expect(page.getByTestId('status')).toBeVisible();
 
+    const phase = await page.locator('#phaseBadge').textContent();
+    if ((phase || '').includes('revealed')) await page.getByTestId('next-btn').click();
     await page.locator('[data-testid="card"][data-v="8"]').click();
     await expect(page.locator('.player.me .vote')).toHaveText('🔒');
 

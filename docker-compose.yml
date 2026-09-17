@@ -26,6 +26,7 @@ services:
       - traefik.http.routers.planning-poker-websecure.tls.certresolver=letsencrypt
       - traefik.http.routers.planning-poker-websecure.service=planning-poker
       - traefik.http.services.planning-poker.loadbalancer.server.port=6969
+      - traefik.http.services.planning-poker.loadbalancer.responseforwarding.flushinterval=1ms
 
 networks:
   dokploy-network:
