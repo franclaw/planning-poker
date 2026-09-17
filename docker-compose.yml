@@ -5,8 +5,15 @@ services:
     ports:
       - "6969:6969"
     restart: unless-stopped
+    networks:
+      - default
+      - dokploy-network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6969/api/state"]
       interval: 30s
       timeout: 5s
       retries: 3
+
+networks:
+  dokploy-network:
+    external: true
