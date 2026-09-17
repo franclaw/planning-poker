@@ -114,15 +114,28 @@
   .leave a { color: var(--muted); font-size: .8rem; cursor: pointer; text-decoration: underline; }
   .hidden { display: none !important; }
   footer { margin-top: 30px; color: #6b4c5a; font-size: .75rem; font-style: italic; text-align: center; }
+  .fan {
+    display: flex; justify-content: center; align-items: flex-end;
+    height: 168px; margin: 4px 0 18px; pointer-events: none;
+  }
+  .fan-card {
+    width: 76px; height: 110px; object-fit: cover; object-position: top;
+    border-radius: 8px; border: 2px solid #c9a227;
+    box-shadow: 0 10px 18px rgba(0,0,0,.5);
+    margin-left: -26px; transform-origin: 50% 110%;
+    background: #2a1620;
+  }
+  .fan-card:first-child { margin-left: 0; }
 </style>
 </head>
 <body>
-  <h1>💋 Planning Poker <span class="tag">— Business Wife Edition</span></h1>
+  <h1>Planning Poker <span class="tag">— Business Wife Edition</span></h1>
   <div class="sub">Open a boardroom. Share the link. Vote like your bonus depends on it.</div>
 
   <div class="wrap">
     <div id="lobby" class="card" data-testid="lobby-screen">
       <h2>Boardroom</h2>
+      <div class="fan" id="lobbyFan" data-testid="lobby-fan" aria-hidden="true"></div>
       <p class="sub" style="margin:0 0 12px">Create a room and send the URL, or join with a room code.</p>
       <button class="join-btn" id="createBtn" data-testid="create-btn" style="margin-top:0">Create a boardroom</button>
       <div class="lobby-row">
@@ -162,7 +175,7 @@
         <div class="table" id="table" data-testid="boardroom"></div>
         <div class="status" id="status" data-testid="status"></div>
         <div class="btnrow" style="justify-content:center">
-          <button class="btn primary" id="revealBtn" data-testid="reveal-btn">💋 Reveal all</button>
+          <button class="btn primary" id="revealBtn" data-testid="reveal-btn">Reveal all</button>
           <button class="btn" id="nextBtn" data-testid="next-btn">Next round →</button>
         </div>
       </div>
@@ -175,7 +188,7 @@
     </div>
   </div>
 
-  <footer>"She closes the deal before lunch." · port 6969</footer>
+  <footer>Inspired by the great H S<br>"She closes the deal before lunch."</footer>
 
 <script>
 const ROSTER = [
@@ -220,6 +233,20 @@ let lastState = null;
 let es = null;
 
 const $ = id => document.getElementById(id);
+(function paintFan() {
+  const fan = $("lobbyFan");
+  if (!fan) return;
+  ROSTER.slice(0, 8).forEach((r, i) => {
+    const img = document.createElement("img");
+    img.className = "fan-card";
+    img.src = thumbOf(r);
+    img.alt = "";
+    const t = i - 3.5;
+    img.style.transform = "rotate(" + (t * 8) + "deg) translateY(" + (Math.abs(t) * 5) + "px)";
+    img.style.zIndex = String(10 - Math.abs(t));
+    fan.appendChild(img);
+  });
+})();
 function api(path, opts) { return fetch("/api/rooms/" + roomId + path, opts); }
 function roomUrl(id) { return location.origin + "/r/" + id; }
 function parseRoomFromPath() {
@@ -360,11 +387,11 @@ function render(s) {
   const voted = s.players.filter(p => p.hasVoted).length;
   const st = $("status");
   st.classList.remove("hot");
-  if (s.phase === "revealed") { st.textContent = "💋 Cards revealed. Discuss, then next round."; st.classList.add("hot"); }
+  if (s.phase === "revealed") { st.textContent = "Cards revealed. Discuss, then next round."; st.classList.add("hot"); }
   else if (s.players.length === 0) st.textContent = "The boardroom is empty.";
   else if (voted === 0) st.textContent = "Waiting for the first play…";
   else if (voted < s.players.length) st.textContent = `${voted}/${s.players.length} have played.`;
-  else { st.textContent = "All cards are on the table. Reveal them. 💋"; st.classList.add("hot"); }
+  else { st.textContent = "All cards are on the table. Reveal them."; st.classList.add("hot"); }
 
   const me = s.players.find(p => p.id === myId);
   document.querySelectorAll(".poker-card").forEach(b => {

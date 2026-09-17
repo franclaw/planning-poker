@@ -32,6 +32,9 @@ test.describe('Planning Poker — rooms', () => {
     await expect(page.getByTestId('create-btn')).toBeVisible();
     await expect(page.getByTestId('join-screen')).toBeHidden();
     await expect(page.getByTestId('game-screen')).toBeHidden();
+    await expect(page.getByTestId('lobby-fan').locator('img.fan-card')).toHaveCount(8);
+    await expect(page.locator('footer')).toContainText('Inspired by the great H S');
+    await expect(page.locator('h1')).not.toContainText('💋');
   });
 
   test('create room gets a shareable /r/:id URL and portraits', async ({ page }) => {
