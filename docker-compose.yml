@@ -13,6 +13,19 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.planning-poker-web.rule=Host(`businesswife.nl`) || Host(`www.businesswife.nl`)
+      - traefik.http.routers.planning-poker-web.entrypoints=web
+      - traefik.http.routers.planning-poker-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.planning-poker-web.service=planning-poker
+      - traefik.http.routers.planning-poker-websecure.rule=Host(`businesswife.nl`) || Host(`www.businesswife.nl`)
+      - traefik.http.routers.planning-poker-websecure.entrypoints=websecure
+      - traefik.http.routers.planning-poker-websecure.tls=true
+      - traefik.http.routers.planning-poker-websecure.tls.certresolver=letsencrypt
+      - traefik.http.routers.planning-poker-websecure.service=planning-poker
+      - traefik.http.services.planning-poker.loadbalancer.server.port=6969
 
 networks:
   dokploy-network:
