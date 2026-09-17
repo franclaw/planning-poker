@@ -9,10 +9,11 @@ services:
       - default
       - dokploy-network
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:6969/api/state"]
-      interval: 30s
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:6969/',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 6
+      start_period: 5s
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
