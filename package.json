@@ -1,0 +1,13 @@
+{
+  "name": "planning-poker",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "test": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:live": "BASE_URL=https://businesswife.nl playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0"
+  }
+}

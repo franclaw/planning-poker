@@ -40,14 +40,14 @@ function publicState() {
 
 function broadcast() {
   const data = `data: ${JSON.stringify(publicState())}\n\n`;
-  for (const res of sseClients.values()) {
-    try { res.write(data); } catch {}
+  for (const res of sseClients.keys()) {
+    try { res.write(data); } catch { sseClients.delete(res); }
   }
 }
 
 setInterval(() => {
-  for (const [id, res] of sseClients) {
-    try { res.write(': ping\n\n'); } catch { sseClients.delete(id); }
+  for (const res of sseClients.keys()) {
+    try { res.write(': ping\n\n'); } catch { sseClients.delete(res); }
   }
 }, 25000);
 
