@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Planning Poker — "(Sexy) Business Wife" edition
-// Zero-dependency Node server: static UI + in-memory state + SSE live sync.
+// Planning Poker — Business Wife edition
+// Zero-dependency Node: rooms + static UI + in-memory state + SSE.
 
 const http = require('http');
 const fs = require('fs');
@@ -10,19 +10,34 @@ const crypto = require('crypto');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 6969;
 const INDEX = path.join(__dirname, 'index.html');
 const PUBLIC = path.join(__dirname, 'public');
+const ROOM_RE = /^[a-z0-9]{6}$/;
+const ID_CHARS = '23456789abcdefghjkmnpqrstuvwxyz';
 
-// ---- Game state (in-memory) ----
-const state = {
-  round: 1,
-  phase: 'lobby', // lobby | voting | revealed
-  question: '',
-  players: {}, // id -> { id, name, icon, vote, revealed }
-};
+const rooms = new Map(); // id -> room
 
-const sseClients = new Map(); // res -> id
+function newRoomId() {
+  for (let n = 0; n < 20; n++) {
+    let id = '';
+    const buf = crypto.randomBytes(6);
+    for (let i = 0; i < 6; i++) id += ID_CHARS[buf[i] % ID_CHARS.length];
+    if (!rooms.has(id)) return id;
+  }
+  return crypto.randomBytes(4).toString('hex').slice(0, 6);
+}
 
-function publicState() {
-  const players = Object.values(state.players).map(p => ({
+function makeRoom(id) {
+  return {
+    id,
+    round: 1,
+    phase: 'lobby',
+    question: '',
+    players: {},
+    sse: new Set(),
+  };
+}
+
+function publicState(room) {
+  const players = Object.values(room.players).map(p => ({
     id: p.id,
     name: p.name,
     icon: p.icon,
@@ -31,23 +46,26 @@ function publicState() {
     hasVoted: !!p.vote,
   }));
   return {
-    round: state.round,
-    phase: state.phase,
-    question: state.question,
+    roomId: room.id,
+    round: room.round,
+    phase: room.phase,
+    question: room.question,
     players: players.sort((a, b) => (a.id < b.id ? -1 : 1)),
   };
 }
 
-function broadcast() {
-  const data = `data: ${JSON.stringify(publicState())}\n\n`;
-  for (const res of sseClients.keys()) {
-    try { res.write(data); } catch { sseClients.delete(res); }
+function broadcast(room) {
+  const data = `data: ${JSON.stringify(publicState(room))}\n\n`;
+  for (const res of room.sse) {
+    try { res.write(data); } catch { room.sse.delete(res); }
   }
 }
 
 setInterval(() => {
-  for (const res of sseClients.keys()) {
-    try { res.write(': ping\n\n'); } catch { sseClients.delete(res); }
+  for (const room of rooms.values()) {
+    for (const res of room.sse) {
+      try { res.write(': ping\n\n'); } catch { room.sse.delete(res); }
+    }
   }
 }, 25000);
 
@@ -65,6 +83,20 @@ function json(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+function serveIndex(res) {
+  fs.readFile(INDEX, (err, buf) => {
+    if (err) { res.writeHead(500); return res.end('index.html missing'); }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(buf);
+  });
+}
+
+function roomFromPath(pathname, prefix) {
+  const rest = pathname.slice(prefix.length);
+  const id = rest.split('/')[0];
+  return ROOM_RE.test(id) ? id : null;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -77,106 +109,117 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
 
-  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) {
-    fs.readFile(INDEX, (err, buf) => {
-      if (err) { res.writeHead(500); return res.end('index.html missing'); }
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(buf);
-    });
-    return;
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html' || /^\/r\/[a-z0-9]{6}\/?$/.test(url.pathname))) {
+    return serveIndex(res);
   }
 
   if (req.method === 'GET' && url.pathname.startsWith('/img/')) {
-    const rel = path.normalize(url.pathname.slice(1)); // img/x.png or img/thumb/x.jpg
+    const rel = path.normalize(url.pathname.slice(1));
     if (!/^img(\/thumb)?\/[a-z0-9-]+\.(png|jpe?g)$/.test(rel)) { res.writeHead(403); return res.end(); }
     const full = path.join(PUBLIC, rel);
     fs.readFile(full, (err, buf) => {
       if (err) { res.writeHead(404); return res.end('not found'); }
-      res.writeHead(200, { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' });
+      const type = rel.endsWith('.jpg') || rel.endsWith('.jpeg') ? 'image/jpeg' : 'image/png';
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'public, max-age=86400' });
       res.end(buf);
     });
     return;
   }
 
-  if (req.method === 'GET' && url.pathname === '/api/events') {
-    res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': '*',
-    });
-    const id = crypto.randomUUID();
-    sseClients.set(res, id);
-    res.write(`data: ${JSON.stringify(publicState())}\n\n`);
-    req.on('close', () => sseClients.delete(res));
-    return;
-  }
-
-  if (req.method === 'GET' && url.pathname === '/api/state') {
-    return json(res, 200, publicState());
-  }
-
   try {
-    // Join: { name, icon }
-    if (req.method === 'POST' && url.pathname === '/api/join') {
+    if (req.method === 'POST' && url.pathname === '/api/rooms') {
+      const id = newRoomId();
+      rooms.set(id, makeRoom(id));
+      return json(res, 200, { id });
+    }
+
+    const roomId = url.pathname.startsWith('/api/rooms/') ? roomFromPath(url.pathname, '/api/rooms/') : null;
+    const room = roomId ? rooms.get(roomId) : null;
+
+    if (req.method === 'GET' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
+      return json(res, 200, { id: room.id, exists: true });
+    }
+
+    if (req.method === 'GET' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/state$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
+      return json(res, 200, publicState(room));
+    }
+
+    if (req.method === 'GET' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/events$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+        'Access-Control-Allow-Origin': '*',
+      });
+      room.sse.add(res);
+      res.write(`data: ${JSON.stringify(publicState(room))}\n\n`);
+      req.on('close', () => room.sse.delete(res));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/join$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
       const { name, icon } = await readBody(req);
       if (!name || !icon) return json(res, 400, { error: 'name and icon required' });
-      // Rejoin by name+icon keeps same identity (reconnect friendly)
-      let p = Object.values(state.players).find(
+      let p = Object.values(room.players).find(
         x => x.name.toLowerCase() === String(name).toLowerCase() && x.icon === icon
       );
       if (!p) {
-        p = { id: crypto.randomUUID(), name: String(name).slice(0, 24), icon, vote: null, revealed: state.phase === 'revealed' };
-        state.players[p.id] = p;
+        p = { id: crypto.randomUUID(), name: String(name).slice(0, 24), icon, vote: null, revealed: room.phase === 'revealed' };
+        room.players[p.id] = p;
       }
-      broadcast();
-      return json(res, 200, { id: p.id });
+      broadcast(room);
+      return json(res, 200, { id: p.id, roomId: room.id });
     }
 
-    // Vote / change vote: { id, value }
-    if (req.method === 'POST' && url.pathname === '/api/vote') {
+    if (req.method === 'POST' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/vote$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
       const { id, value } = await readBody(req);
-      const p = state.players[id];
+      const p = room.players[id];
       if (!p) return json(res, 404, { error: 'unknown player' });
-      if (state.phase === 'revealed') return json(res, 409, { error: 'round already revealed' });
+      if (room.phase === 'revealed') return json(res, 409, { error: 'round already revealed' });
       if (!/^[0-9?☕∞]+$/.test(String(value))) return json(res, 400, { error: 'bad vote' });
       p.vote = String(value).slice(0, 4);
-      broadcast();
+      if (room.phase === 'lobby') room.phase = 'voting';
+      broadcast(room);
       return json(res, 200, { ok: true });
     }
 
-    // Reveal
-    if (req.method === 'POST' && url.pathname === '/api/reveal') {
-      if (state.phase !== 'voting' && state.phase !== 'lobby') return json(res, 409, { error: 'nothing to reveal' });
-      state.phase = 'revealed';
-      for (const p of Object.values(state.players)) p.revealed = true;
-      broadcast();
+    if (req.method === 'POST' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/reveal$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
+      if (room.phase !== 'voting' && room.phase !== 'lobby') return json(res, 409, { error: 'nothing to reveal' });
+      room.phase = 'revealed';
+      for (const p of Object.values(room.players)) p.revealed = true;
+      broadcast(room);
       return json(res, 200, { ok: true });
     }
 
-    // Next round
-    if (req.method === 'POST' && url.pathname === '/api/next') {
-      state.round += 1;
-      state.phase = 'voting';
-      for (const p of Object.values(state.players)) { p.vote = null; p.revealed = false; }
-      broadcast();
+    if (req.method === 'POST' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/next$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
+      room.round += 1;
+      room.phase = 'voting';
+      for (const p of Object.values(room.players)) { p.vote = null; p.revealed = false; }
+      broadcast(room);
       return json(res, 200, { ok: true });
     }
 
-    // Set question
-    if (req.method === 'POST' && url.pathname === '/api/question') {
+    if (req.method === 'POST' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/question$/)) {
+      if (!room) return json(res, 404, { error: 'room not found' });
       const { question } = await readBody(req);
-      state.question = String(question || '').slice(0, 200);
-      broadcast();
+      room.question = String(question || '').slice(0, 200);
+      broadcast(room);
       return json(res, 200, { ok: true });
     }
 
-    // Leave
-    if (req.method === 'DELETE' && url.pathname.startsWith('/api/leave/')) {
-      const id = url.pathname.split('/').pop();
-      if (state.players[id]) delete state.players[id];
-      broadcast();
+    const leaveM = url.pathname.match(/^\/api\/rooms\/([a-z0-9]{6})\/leave\/([^/]+)$/);
+    if (req.method === 'DELETE' && leaveM) {
+      const r = rooms.get(leaveM[1]);
+      if (r && r.players[leaveM[2]]) delete r.players[leaveM[2]];
+      if (r) broadcast(r);
       return json(res, 200, { ok: true });
     }
   } catch {
@@ -187,4 +230,4 @@ const server = http.createServer(async (req, res) => {
   res.end('not found');
 });
 
-server.listen(PORT, () => console.log(`planning poker (sexy business wife edition) on :${PORT}`));
+server.listen(PORT, () => console.log(`planning poker (business wife edition) on :${PORT}`));

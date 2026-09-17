@@ -56,6 +56,15 @@
     font-family: inherit; font-size: 1.05rem; letter-spacing: .05em; cursor: pointer;
   }
   .join-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .lobby-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .lobby-row input, .share input {
+    flex: 1; min-width: 140px; padding: 11px 14px; border-radius: 10px;
+    border: 1px solid #43263a; background: #16090f; color: var(--cream);
+    font-family: inherit; font-size: 1rem;
+  }
+  .err { color: var(--rose); font-size: .85rem; margin-top: 8px; min-height: 1.1em; }
+  .share { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .share input { font-size: .85rem; }
   /* Table */
   .table { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
   .player {
@@ -109,14 +118,33 @@
 </head>
 <body>
   <h1>💋 Planning Poker <span class="tag">— Business Wife Edition</span></h1>
-  <div class="sub">Choose your alter ego. Vote like your bonus depends on it.</div>
+  <div class="sub">Open a boardroom. Share the link. Vote like your bonus depends on it.</div>
 
   <div class="wrap">
+    <div id="lobby" class="card" data-testid="lobby-screen">
+      <h2>Boardroom</h2>
+      <p class="sub" style="margin:0 0 12px">Create a room and send the URL, or join with a room code.</p>
+      <button class="join-btn" id="createBtn" data-testid="create-btn" style="margin-top:0">Create a boardroom</button>
+      <div class="lobby-row">
+        <input id="roomCode" data-testid="room-code" placeholder="Room code" maxlength="6" autocomplete="off">
+        <button class="btn gold" id="joinRoomBtn" data-testid="join-room-btn">Join</button>
+      </div>
+      <div class="err" id="lobbyErr" data-testid="lobby-err"></div>
+    </div>
+
     <!-- JOIN -->
-    <div id="join" class="card" data-testid="join-screen">
+    <div id="join" class="card hidden" data-testid="join-screen">
       <h2>Choose your Business Wife</h2>
       <div class="grid-names" id="nameGrid"></div>
       <button class="join-btn" id="joinBtn" data-testid="join-btn" disabled>Enter the boardroom</button>
+    </div>
+
+    <div id="shareCard" class="card hidden" data-testid="share-card">
+      <h2>Invite</h2>
+      <div class="share">
+        <input id="shareUrl" data-testid="share-url" readonly>
+        <button class="btn gold" id="copyBtn" data-testid="copy-btn">Copy link</button>
+      </div>
     </div>
 
     <!-- TABLE -->
@@ -185,11 +213,28 @@ function bindImgFallback(root) {
 }
 const CARDS = ["1","2","3","5","8","13","21","34","55","?","∞","☕"];
 
-let myId = localStorage.getItem("sbw_id") || null;
+let roomId = null;
+let myId = null;
 let myPick = JSON.parse(localStorage.getItem("sbw_pick") || "null");
 let lastState = null;
+let es = null;
 
 const $ = id => document.getElementById(id);
+function api(path, opts) { return fetch("/api/rooms/" + roomId + path, opts); }
+function roomUrl(id) { return location.origin + "/r/" + id; }
+function parseRoomFromPath() {
+  const m = location.pathname.match(/^\/r\/([a-z0-9]{6})\/?$/);
+  return m ? m[1] : null;
+}
+function show(which) {
+  $("lobby").classList.toggle("hidden", which !== "lobby");
+  $("join").classList.toggle("hidden", which !== "join");
+  $("game").classList.toggle("hidden", which !== "game");
+  $("shareCard").classList.toggle("hidden", which === "lobby");
+}
+function setShare() {
+  if ($("shareUrl") && roomId) $("shareUrl").value = roomUrl(roomId);
+}
 
 // --- Join screen ---
 const grid = $("nameGrid");
@@ -211,24 +256,58 @@ ROSTER.forEach(r => {
   grid.appendChild(b);
 });
 
+$("createBtn").onclick = async () => {
+  const res = await fetch("/api/rooms", { method: "POST" });
+  const { id } = await res.json();
+  enterRoom(id, true);
+};
+$("joinRoomBtn").onclick = () => {
+  const code = ($("roomCode").value || "").trim().toLowerCase();
+  if (!/^[a-z0-9]{6}$/.test(code)) { $("lobbyErr").textContent = "Room codes are 6 characters."; return; }
+  enterRoom(code, false);
+};
+$("roomCode").addEventListener("keydown", e => { if (e.key === "Enter") $("joinRoomBtn").click(); });
+$("copyBtn").onclick = async () => {
+  const v = $("shareUrl").value;
+  try { await navigator.clipboard.writeText(v); $("copyBtn").textContent = "Copied"; setTimeout(() => $("copyBtn").textContent = "Copy link", 1200); }
+  catch { $("shareUrl").select(); document.execCommand("copy"); }
+};
+
+async function enterRoom(id, created) {
+  const check = await fetch("/api/rooms/" + id);
+  if (!check.ok) { $("lobbyErr").textContent = "No boardroom with that code."; if (created) history.replaceState({}, "", "/"); return; }
+  roomId = id;
+  history.replaceState({}, "", "/r/" + id);
+  setShare();
+  connect();
+  myId = localStorage.getItem("sbw_id_" + roomId) || null;
+  show("join");
+  if (myId) {
+    const s = await api("/state").then(r => r.json());
+    if (s.players.some(p => p.id === myId)) { show("game"); render(s); }
+    else { myId = null; localStorage.removeItem("sbw_id_" + roomId); }
+  }
+}
+
 $("joinBtn").onclick = async () => {
-  const res = await fetch("/api/join", {
+  const res = await api("/join", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(myPick),
   });
   const { id } = await res.json();
   myId = id;
-  localStorage.setItem("sbw_id", id);
+  localStorage.setItem("sbw_id_" + roomId, id);
   localStorage.setItem("sbw_pick", JSON.stringify(myPick));
-  $("join").classList.add("hidden");
-  $("game").classList.remove("hidden");
-  fetch("/api/state").then(r => r.json()).then(render);
+  show("game");
+  setShare();
+  refreshState();
 };
 
 $("leaveLink").onclick = async () => {
-  if (myId) await fetch("/api/leave/" + myId, { method: "DELETE" });
-  localStorage.removeItem("sbw_id");
-  location.reload();
+  if (myId && roomId) await fetch("/api/rooms/" + roomId + "/leave/" + myId, { method: "DELETE" });
+  if (roomId) localStorage.removeItem("sbw_id_" + roomId);
+  myId = null;
+  location.href = "/";
 };
 
 // --- Cards ---
@@ -238,7 +317,7 @@ CARDS.forEach(c => {
   b.textContent = c;
   b.dataset.v = c;
   b.dataset.testid = "card";
-  b.onclick = () => myId && fetch("/api/vote", {
+  b.onclick = () => myId && api("/vote", {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ id: myId, value: c }),
   }).then(refreshState);
@@ -246,11 +325,12 @@ CARDS.forEach(c => {
 });
 
 function refreshState() {
-  return fetch("/api/state").then(r => r.json()).then(render);
+  if (!roomId) return Promise.resolve();
+  return api("/state").then(r => r.json()).then(render);
 }
-$("revealBtn").onclick = () => fetch("/api/reveal", { method: "POST" }).then(refreshState);
-$("nextBtn").onclick = () => fetch("/api/next", { method: "POST" }).then(refreshState);
-$("saveQ").onclick = () => fetch("/api/question", {
+$("revealBtn").onclick = () => api("/reveal", { method: "POST" }).then(refreshState);
+$("nextBtn").onclick = () => api("/next", { method: "POST" }).then(refreshState);
+$("saveQ").onclick = () => api("/question", {
   method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ question: $("question").value }),
 }).then(refreshState);
@@ -299,27 +379,26 @@ function render(s) {
 function escapeHtml(x) { const d = document.createElement("div"); d.textContent = x; return d.innerHTML; }
 
 function connect() {
-  const es = new EventSource("/api/events");
+  if (es) { try { es.close(); } catch {} }
+  if (!roomId) return;
+  es = new EventSource("/api/rooms/" + roomId + "/events");
   es.onmessage = e => render(JSON.parse(e.data));
   es.onerror = () => { es.close(); setTimeout(connect, 2000); };
 }
 
-// remember own vote locally for card highlighting
 const origFetch = window.fetch;
 window.fetch = (url, opts) => {
-  if (url === "/api/vote" && opts && opts.body) localStorage.setItem("sbw_myvote", JSON.parse(opts.body).value);
+  if (typeof url === "string" && url.endsWith("/vote") && opts && opts.body) {
+    try { localStorage.setItem("sbw_myvote", JSON.parse(opts.body).value); } catch {}
+  }
   return origFetch(url, opts);
 };
 
-connect();
-if (myId) {
-  fetch("/api/state").then(r => r.json()).then(s => {
-    if (s.players.some(p => p.id === myId)) {
-      $("join").classList.add("hidden");
-      $("game").classList.remove("hidden");
-    } else { myId = null; localStorage.removeItem("sbw_id"); }
-  });
-}
+(async () => {
+  const fromPath = parseRoomFromPath();
+  if (fromPath) await enterRoom(fromPath, false);
+  else show("lobby");
+})();
 </script>
 </body>
 </html>
