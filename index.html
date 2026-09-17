@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning Poker — Business Wife Edition</title>
+<style>
+  :root {
+    --bg: #14090e;
+    --panel: #1f1017;
+    --panel2: #2a1620;
+    --rose: #e0447c;
+    --rose-dim: #a3305c;
+    --gold: #d9a441;
+    --cream: #f5e9e0;
+    --muted: #a98a97;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(1200px 800px at 80% -10%, #3d1526 0%, var(--bg) 55%);
+    color: var(--cream);
+    font-family: "Georgia", "Times New Roman", serif;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 24px 16px 60px;
+  }
+  h1 { font-size: 1.6rem; letter-spacing: .04em; }
+  h1 .tag { color: var(--rose); font-style: italic; }
+  .sub { color: var(--muted); font-size: .85rem; margin-top: 4px; font-style: italic; }
+  .wrap { width: 100%; max-width: 860px; margin-top: 24px; }
+  .card {
+    background: linear-gradient(180deg, var(--panel) 0%, #190c13 100%);
+    border: 1px solid #3a2130; border-radius: 14px; padding: 20px;
+    box-shadow: 0 8px 30px rgba(0,0,0,.45);
+  }
+  .card + .card { margin-top: 18px; }
+  h2 { font-size: 1.05rem; color: var(--gold); margin-bottom: 12px; letter-spacing: .06em; text-transform: uppercase; }
+  /* Join screen */
+  .grid-names { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; }
+  .pick {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--panel2); border: 1px solid #43263a; border-radius: 10px;
+    padding: 10px 12px; cursor: pointer; color: var(--cream);
+    font-family: inherit; font-size: .95rem; text-align: left;
+    transition: transform .08s, border-color .12s;
+  }
+  .pick:hover { transform: translateY(-1px); border-color: var(--rose-dim); }
+  .pick.sel { border-color: var(--rose); background: #3a1a2a; box-shadow: 0 0 0 1px var(--rose) inset; }
+  .pick .ico { font-size: 1.5rem; }
+  .pick .pic { width: 40px; height: 56px; object-fit: cover; object-position: top; border-radius: 6px; border: 1px solid #6b3a50; flex: 0 0 auto; }
+  .pick .who .ttl { display: block; font-size: .72rem; color: var(--muted); font-style: italic; letter-spacing: .03em; }
+  .join-btn {
+    margin-top: 16px; width: 100%; padding: 13px;
+    background: linear-gradient(180deg, var(--rose), #b02e62);
+    color: #fff; border: 0; border-radius: 10px;
+    font-family: inherit; font-size: 1.05rem; letter-spacing: .05em; cursor: pointer;
+  }
+  .join-btn:disabled { opacity: .4; cursor: not-allowed; }
+  /* Table */
+  .table { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .player {
+    background: var(--panel2); border: 1px solid #43263a; border-radius: 12px;
+    padding: 12px 8px; text-align: center; position: relative;
+  }
+  .player .ico { font-size: 2.2rem; display: block; }
+  .player .pic { width: 72px; height: 100px; object-fit: cover; object-position: top; border-radius: 8px; border: 1px solid #6b3a50; display: block; margin: 0 auto; }
+  .player .nm { font-size: .85rem; margin-top: 6px; color: var(--cream); word-break: break-word; }
+  .player .vote {
+    margin-top: 8px; font-size: 1.3rem; min-height: 44px;
+    display: flex; align-items: center; justify-content: center;
+    background: #16090f; border-radius: 8px; border: 1px solid #3a2130;
+  }
+  .player.me { border-color: var(--gold); }
+  .player.me::after { content: "you"; position: absolute; top: -8px; right: 8px; font-size: .65rem; color: var(--gold); letter-spacing: .1em; text-transform: uppercase; }
+  .player.voting-ind .vote { color: var(--muted); font-style: italic; }
+  .player.voted .vote { border-color: var(--gold); color: var(--gold); }
+  /* Cards */
+  .cards { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+  .poker-card {
+    width: 64px; height: 92px; border-radius: 9px;
+    background: linear-gradient(160deg, #fdf6ee 0%, #efe0d2 100%);
+    color: #6d1030; border: 2px solid #d8c4b0;
+    font-family: inherit; font-size: 1.35rem; font-weight: bold; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 10px rgba(0,0,0,.4);
+    transition: transform .08s;
+  }
+  .poker-card:hover { transform: translateY(-4px); }
+  .poker-card.sel { border-color: var(--rose); box-shadow: 0 0 14px rgba(224,68,124,.55); transform: translateY(-4px); }
+  .question { width: 100%; padding: 11px 14px; border-radius: 10px; border: 1px solid #43263a;
+    background: #16090f; color: var(--cream); font-family: inherit; font-size: 1rem; }
+  .btnrow { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+  .btn {
+    padding: 10px 18px; border-radius: 9px; border: 1px solid var(--rose-dim);
+    background: transparent; color: var(--rose); font-family: inherit; font-size: .95rem; cursor: pointer;
+  }
+  .btn.primary { background: linear-gradient(180deg, var(--rose), #b02e62); color: #fff; border: 0; }
+  .btn.gold { border-color: var(--gold); color: var(--gold); }
+  .btn:hover { filter: brightness(1.15); }
+  .status { text-align: center; color: var(--muted); font-style: italic; margin: 14px 0 4px; }
+  .status.hot { color: var(--gold); }
+  .badge { display:inline-block; background:#3a1a2a; border:1px solid var(--rose-dim); color: var(--cream);
+    border-radius: 20px; padding: 2px 12px; font-size: .8rem; margin-left: 8px; }
+  .leave { margin-top: 18px; text-align: center; }
+  .leave a { color: var(--muted); font-size: .8rem; cursor: pointer; text-decoration: underline; }
+  .hidden { display: none !important; }
+  footer { margin-top: 30px; color: #6b4c5a; font-size: .75rem; font-style: italic; text-align: center; }
+</style>
+</head>
+<body>
+  <h1>💋 Planning Poker <span class="tag">— Business Wife Edition</span></h1>
+  <div class="sub">Choose your alter ego. Vote like your bonus depends on it.</div>
+
+  <div class="wrap">
+    <!-- JOIN -->
+    <div id="join" class="card">
+      <h2>Choose your Business Wife</h2>
+      <div class="grid-names" id="nameGrid"></div>
+      <button class="join-btn" id="joinBtn" disabled>Enter the boardroom</button>
+    </div>
+
+    <!-- TABLE -->
+    <div id="game" class="hidden">
+      <div class="card">
+        <h2>Round <span id="round">1</span><span class="badge" id="phaseBadge"></span></h2>
+        <input class="question" id="question" placeholder="Story / question for this round… (optional)">
+        <div class="btnrow">
+          <button class="btn gold" id="saveQ">Save</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>The Boardroom</h2>
+        <div class="table" id="table"></div>
+        <div class="status" id="status"></div>
+        <div class="btnrow" style="justify-content:center">
+          <button class="btn primary" id="revealBtn">💋 Reveal all</button>
+          <button class="btn" id="nextBtn">Next round →</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Your play</h2>
+        <div class="cards" id="cards"></div>
+        <div class="leave"><a id="leaveLink">leave the boardroom</a></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>"She closes the deal before lunch." · port 6969</footer>
+
+<script>
+const ROSTER = [
+  { icon: "💼", name: "The Executive", first: "Vivienne", img: "/img/executive.png" },
+  { icon: "👠", name: "The Closer", first: "Coco", img: "/img/closer.png" },
+  { icon: "👩‍💼", name: "Boardroom Boss", first: "Victoria", img: "/img/boardroom.png" },
+  { icon: "📊", name: "Quarterly Queen", first: "Margot", img: "/img/quarterly.png" },
+  { icon: "📋", name: "Executive Assistant", first: "Scarlett", img: "/img/assistant.png" },
+  { icon: "🗂️", name: "Head of HR", first: "Danielle", img: "/img/hr.png" },
+  { icon: "💍", name: "The Merger", first: "Aurélie", img: "/img/merger.png" },
+  { icon: "🥂", name: "Champagne CFO", first: "Bibi", img: "/img/cfo.png" },
+  { icon: "⚖️", name: "Legal Counsel", first: "Charlotte", img: "/img/legal.png" },
+  { icon: "💄", name: "The Negotiator", first: "Roxane", img: "/img/negotiator.png" },
+  { icon: "☕", name: "Secretary", first: "Betty", img: "/img/secretary.png" },
+  { icon: "⛓️", name: "Power Broker", first: "Dominique", img: "/img/broker.png" },
+  { icon: "🖊️", name: "Signature Artist", first: "Joséphine", img: "/img/signature.png" },
+  { icon: "💅", name: "Interim CEO", first: "Catherine", img: "/img/interim-ceo.png" },
+  { icon: "📈", name: "Growth Widow", first: "Gaby", img: "/img/growth.png" },
+  { icon: "🧾", name: "Expense Account", first: "Tamara", img: "/img/expense.png" },
+];
+const ROSTER_BY_NAME = Object.fromEntries(ROSTER.map(r => [r.name, r]));
+function thumbOf(r) {
+  return r && r.img ? r.img.replace("/img/", "/img/thumb/").replace(/\.png$/, ".jpg") : null;
+}
+function picOrIcon(r, cls) {
+  const t = thumbOf(r);
+  if (t) return `<img class="${cls}" src="${t}" alt="" data-fb="${r.icon}" title="${r.first} — ${r.name}">`;
+  return `<span class="ico">${r ? r.icon : "❔"}</span>`;
+}
+function bindImgFallback(root) {
+  root.querySelectorAll("img.pic").forEach(i => { i.onerror = () => {
+    const s = document.createElement("span"); s.className = "ico"; s.textContent = i.dataset.fb;
+    i.replaceWith(s);
+  }; });
+}
+const CARDS = ["1","2","3","5","8","13","21","34","55","?","∞","☕"];
+
+let myId = localStorage.getItem("sbw_id") || null;
+let myPick = JSON.parse(localStorage.getItem("sbw_pick") || "null");
+let lastState = null;
+
+const $ = id => document.getElementById(id);
+
+// --- Join screen ---
+const grid = $("nameGrid");
+ROSTER.forEach(r => {
+  const b = document.createElement("button");
+  b.className = "pick";
+  b.innerHTML = `${picOrIcon(r, "pic")}<span class="who">${r.first} <span class="ttl">${r.name}</span></span>`;
+  bindImgFallback(b);
+  b.onclick = () => {
+    document.querySelectorAll(".pick").forEach(x => x.classList.remove("sel"));
+    b.classList.add("sel");
+    myPick = r;
+    $("joinBtn").disabled = false;
+  };
+  if (myPick && myPick.name === r.name) { b.classList.add("sel"); $("joinBtn").disabled = false; }
+  grid.appendChild(b);
+});
+
+$("joinBtn").onclick = async () => {
+  const res = await fetch("/api/join", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(myPick),
+  });
+  const { id } = await res.json();
+  myId = id;
+  localStorage.setItem("sbw_id", id);
+  localStorage.setItem("sbw_pick", JSON.stringify(myPick));
+  $("join").classList.add("hidden");
+  $("game").classList.remove("hidden");
+};
+
+$("leaveLink").onclick = async () => {
+  if (myId) await fetch("/api/leave/" + myId, { method: "DELETE" });
+  localStorage.removeItem("sbw_id");
+  location.reload();
+};
+
+// --- Cards ---
+CARDS.forEach(c => {
+  const b = document.createElement("button");
+  b.className = "poker-card";
+  b.textContent = c;
+  b.dataset.v = c;
+  b.onclick = () => myId && fetch("/api/vote", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id: myId, value: c }),
+  });
+  $("cards").appendChild(b);
+});
+
+$("revealBtn").onclick = () => fetch("/api/reveal", { method: "POST" });
+$("nextBtn").onclick = () => fetch("/api/next", { method: "POST" });
+$("saveQ").onclick = () => fetch("/api/question", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ question: $("question").value }),
+});
+
+// --- Live state ---
+function render(s) {
+  lastState = s;
+  $("round").textContent = s.round;
+  $("phaseBadge").textContent = s.phase === "revealed" ? "revealed" : s.phase === "voting" ? "voting" : "lobby";
+  if (document.activeElement !== $("question")) $("question").value = s.question || "";
+
+  const table = $("table");
+  table.innerHTML = "";
+  s.players.forEach(p => {
+    const d = document.createElement("div");
+    d.className = "player" + (p.id === myId ? " me" : "");
+    const voteText = p.vote === "🔒"
+      ? "🔒"
+      : p.vote ? p.vote : "—";
+    if (p.vote && !p.revealed) d.classList.add("voted");
+    const r = ROSTER_BY_NAME[p.name];
+    d.innerHTML = `${picOrIcon(r || { icon: p.icon }, "pic")}<span class="nm">${escapeHtml(r ? r.first + " · " + r.name : p.name)}</span><div class="vote">${voteText}</div>`;
+    bindImgFallback(d);
+    table.appendChild(d);
+  });
+
+  const voted = s.players.filter(p => p.hasVoted).length;
+  const st = $("status");
+  st.classList.remove("hot");
+  if (s.phase === "revealed") { st.textContent = "💋 Cards revealed. Discuss, then next round."; st.classList.add("hot"); }
+  else if (s.players.length === 0) st.textContent = "The boardroom is empty.";
+  else if (voted === 0) st.textContent = "Waiting for the first play…";
+  else if (voted < s.players.length) st.textContent = `${voted}/${s.players.length} have played.`;
+  else { st.textContent = "All cards are on the table. Reveal them. 💋"; st.classList.add("hot"); }
+
+  const me = s.players.find(p => p.id === myId);
+  document.querySelectorAll(".poker-card").forEach(b => {
+    b.classList.toggle("sel", !!(me && me.hasVoted && b.dataset.v === me.revealedVote));
+  });
+  if (me) {
+    document.querySelectorAll(".poker-card").forEach(b =>
+      b.classList.toggle("sel", b.dataset.v === (localStorage.getItem("sbw_myvote") || "")));
+  }
+}
+
+function escapeHtml(x) { const d = document.createElement("div"); d.textContent = x; return d.innerHTML; }
+
+function connect() {
+  const es = new EventSource("/api/events");
+  es.onmessage = e => render(JSON.parse(e.data));
+  es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+}
+
+// remember own vote locally for card highlighting
+const origFetch = window.fetch;
+window.fetch = (url, opts) => {
+  if (url === "/api/vote" && opts && opts.body) localStorage.setItem("sbw_myvote", JSON.parse(opts.body).value);
+  return origFetch(url, opts);
+};
+
+connect();
+if (myId) {
+  fetch("/api/state").then(r => r.json()).then(s => {
+    if (s.players.some(p => p.id === myId)) {
+      $("join").classList.add("hidden");
+      $("game").classList.remove("hidden");
+    } else { myId = null; localStorage.removeItem("sbw_id"); }
+  });
+}
+</script>
+</body>
+</html>
