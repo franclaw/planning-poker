@@ -104,6 +104,41 @@ test.describe('Planning Poker — rooms', () => {
     await expect(page.getByRole('button', { name: /Dominique/ })).toHaveCount(0);
   });
 
+  test('observer joins, watches, and cannot vote', async ({ browser }) => {
+    const host = await browser.newPage();
+    const roomUrl = await createRoom(host);
+    await pickWife(host, 'Coco');
+
+    const obs = await browser.newPage();
+    await obs.goto(roomUrl);
+    await obs.getByTestId('observer-name').fill('Sam');
+    await obs.getByTestId('observer-btn').click();
+    await expect(obs.getByTestId('game-screen')).toBeVisible();
+    await expect(obs.getByTestId('cards')).toBeHidden();
+    await expect(obs.getByTestId('boardroom')).toContainText('Sam');
+    await expect(host.getByTestId('boardroom')).toContainText('Sam');
+
+    // server rejects observer votes with 403
+    const rejected = await obs.evaluate(async () => {
+      const id = localStorage.getItem('sbw_id_' + location.pathname.slice(3));
+      const r = await fetch(location.origin + '/api/rooms/' + location.pathname.slice(3) + '/vote', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, value: '5' }),
+      });
+      return r.status;
+    });
+    expect(rejected).toBe(403);
+
+    // host can still vote and reveal with an observer present
+    await host.locator('[data-testid="card"][data-v="8"]').click();
+    await expect(host.locator('.player.me .vote')).toHaveText('🔒');
+    await host.getByTestId('reveal-btn').click();
+    await expect(obs.getByTestId('boardroom')).toContainText('8');
+
+    await leave(host);
+    await leave(obs);
+  });
+
   test('two rooms stay isolated', async ({ browser }) => {
     const a = await browser.newPage();
     const b = await browser.newPage();

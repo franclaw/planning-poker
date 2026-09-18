@@ -41,9 +41,10 @@ function publicState(room) {
     id: p.id,
     name: p.name,
     icon: p.icon,
+    role: p.role || 'player',
     vote: p.revealed ? p.vote : (p.vote ? '🔒' : null),
     revealed: p.revealed,
-    hasVoted: !!p.vote,
+    hasVoted: p.role !== 'observer' && !!p.vote,
   }));
   return {
     roomId: room.id,
@@ -113,6 +114,16 @@ const server = http.createServer(async (req, res) => {
     return serveIndex(res);
   }
 
+  if (req.method === 'GET' && (url.pathname === '/favicon.ico' || url.pathname === '/favicon.png' || url.pathname === '/apple-touch-icon.png')) {
+    const full = path.join(PUBLIC, url.pathname.slice(1));
+    fs.readFile(full, (err, buf) => {
+      if (err) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': url.pathname.endsWith('.ico') ? 'image/x-icon' : 'image/png', 'Cache-Control': 'public, max-age=86400' });
+      res.end(buf);
+    });
+    return;
+  }
+
   if (req.method === 'GET' && url.pathname.startsWith('/img/')) {
     const rel = path.normalize(url.pathname.slice(1));
     if (!/^img(\/thumb)?\/[a-z0-9-]+\.(png|jpe?g)$/.test(rel)) { res.writeHead(403); return res.end(); }
@@ -163,13 +174,24 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname.match(/^\/api\/rooms\/[a-z0-9]{6}\/join$/)) {
       if (!room) return json(res, 404, { error: 'room not found' });
-      const { name, icon } = await readBody(req);
-      if (!name || !icon) return json(res, 400, { error: 'name and icon required' });
-      const taken = Object.values(room.players).find(
-        x => x.name.toLowerCase() === String(name).toLowerCase()
-      );
-      if (taken) return json(res, 409, { error: 'taken' });
-      const p = { id: crypto.randomUUID(), name: String(name).slice(0, 24), icon, vote: null, revealed: room.phase === 'revealed' };
+      const { name, icon, role } = await readBody(req);
+      if (!name) return json(res, 400, { error: 'name required' });
+      const isObserver = role === 'observer';
+      if (!isObserver && !icon) return json(res, 400, { error: 'name and icon required' });
+      if (!isObserver) {
+        const taken = Object.values(room.players).find(
+          x => x.role !== 'observer' && x.name.toLowerCase() === String(name).toLowerCase()
+        );
+        if (taken) return json(res, 409, { error: 'taken' });
+      }
+      const p = {
+        id: crypto.randomUUID(),
+        name: String(name).slice(0, 24),
+        icon: isObserver ? '👁️' : icon,
+        role: isObserver ? 'observer' : 'player',
+        vote: null,
+        revealed: !isObserver && room.phase === 'revealed',
+      };
       room.players[p.id] = p;
       broadcast(room);
       return json(res, 200, { id: p.id, roomId: room.id });
@@ -180,6 +202,7 @@ const server = http.createServer(async (req, res) => {
       const { id, value } = await readBody(req);
       const p = room.players[id];
       if (!p) return json(res, 404, { error: 'unknown player' });
+      if (p.role === 'observer') return json(res, 403, { error: 'observers cannot vote' });
       if (room.phase === 'revealed') return json(res, 409, { error: 'round already revealed' });
       if (!/^[0-9?☕∞]+$/.test(String(value))) return json(res, 400, { error: 'bad vote' });
       p.vote = String(value).slice(0, 4);

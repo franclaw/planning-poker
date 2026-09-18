@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Planning Poker — Business Wife Edition</title>
+<link rel="icon" href="/favicon.png" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
   :root {
     --bg: #14090e;
@@ -69,6 +71,8 @@
   .err { color: var(--rose); font-size: .85rem; margin-top: 8px; min-height: 1.1em; }
   .share { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   .share input { font-size: .85rem; }
+  .obs-row { display: flex; gap: 8px; margin-top: 10px; }
+  .obs-row input { flex: 1; min-width: 140px; padding: 11px 14px; border-radius: 10px; border: 1px solid #43263a; background: #16090f; color: var(--cream); font-family: inherit; font-size: 1rem; }
   /* Table */
   .table { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
   .player {
@@ -84,6 +88,8 @@
     background: #16090f; border-radius: 8px; border: 1px solid #3a2130;
   }
   .player.me { border-color: var(--gold); }
+  .player.observer .pic { filter: grayscale(1); opacity: .75; }
+  .player.observer::after { content: "observer"; position: absolute; top: -8px; right: 8px; font-size: .65rem; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
   .player.me::after { content: "you"; position: absolute; top: -8px; right: 8px; font-size: .65rem; color: var(--gold); letter-spacing: .1em; text-transform: uppercase; }
   .player.voting-ind .vote { color: var(--muted); font-style: italic; }
   .player.voted .vote { border-color: var(--gold); color: var(--gold); }
@@ -158,6 +164,10 @@
         <div class="grid-names" id="takenGrid" data-testid="taken-grid"></div>
       </div>
       <button class="join-btn" id="joinBtn" data-testid="join-btn" disabled>Enter the boardroom</button>
+      <div class="obs-row">
+        <input id="obsName" data-testid="observer-name" placeholder="Your name" maxlength="24" autocomplete="off">
+        <button class="btn gold" id="obsBtn" data-testid="observer-btn">Watch as observer</button>
+      </div>
       <div class="err" id="joinErr" data-testid="join-err"></div>
     </div>
 
@@ -189,7 +199,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="playCard">
         <h2>Your play</h2>
         <div class="cards" id="cards" data-testid="cards"></div>
         <div class="leave"><a id="leaveLink" data-testid="leave-link">leave the boardroom</a></div>
@@ -369,6 +379,22 @@ $("joinBtn").onclick = async () => {
   refreshState();
 };
 
+$("obsBtn").onclick = async () => {
+  const name = ($("obsName").value || "").trim() || "Observer";
+  const res = await api("/join", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, icon: "\ud83d\udc41\ufe0f", role: "observer" }),
+  });
+  if (!res.ok) { $("joinErr").textContent = "Could not join as observer."; return; }
+  const { id } = await res.json();
+  myId = id;
+  localStorage.setItem("sbw_id_" + roomId, id);
+  show("game");
+  setShare();
+  refreshState();
+};
+$("obsName").addEventListener("keydown", e => { if (e.key === "Enter") $("obsBtn").click(); });
+
 $("leaveLink").onclick = async () => {
   if (myId && roomId) await fetch("/api/rooms/" + roomId + "/leave/" + myId, { method: "DELETE" });
   if (roomId) localStorage.removeItem("sbw_id_" + roomId);
@@ -418,22 +444,25 @@ function render(s) {
       ? "🔒"
       : p.vote ? p.vote : "—";
     if (p.vote && !p.revealed) d.classList.add("voted");
-    const r = ROSTER_BY_NAME[p.name];
-    d.innerHTML = `${picOrIcon(r || { icon: p.icon }, "pic")}<span class="nm">${escapeHtml(r ? r.first + " · " + r.name : p.name)}</span><div class="vote">${voteText}</div>`;
+    if (p.role === "observer") d.classList.add("observer");
+    const r = p.role === "observer" ? null : ROSTER_BY_NAME[p.name];
+    d.innerHTML = `${p.role === "observer" ? `<span class="ico">${p.icon || "👁️"}</span>` : picOrIcon(r || { icon: p.icon }, "pic")}<span class="nm">${escapeHtml(r ? r.first + " · " + r.name : p.name)}</span><div class="vote">${voteText}</div>`;
     bindImgFallback(d);
     table.appendChild(d);
   });
 
-  const voted = s.players.filter(p => p.hasVoted).length;
+  const voters = s.players.filter(p => p.role !== "observer");
+  const voted = voters.filter(p => p.hasVoted).length;
   const st = $("status");
   st.classList.remove("hot");
   if (s.phase === "revealed") { st.textContent = "Cards revealed. Discuss, then next round."; st.classList.add("hot"); }
-  else if (s.players.length === 0) st.textContent = "The boardroom is empty.";
+  else if (voters.length === 0) st.textContent = "The boardroom is empty.";
   else if (voted === 0) st.textContent = "Waiting for the first play…";
-  else if (voted < s.players.length) st.textContent = `${voted}/${s.players.length} have played.`;
+  else if (voted < voters.length) st.textContent = `${voted}/${voters.length} have played.`;
   else { st.textContent = "All cards are on the table. Reveal them."; st.classList.add("hot"); }
 
   const me = s.players.find(p => p.id === myId);
+  $("playCard").classList.toggle("hidden", !!(me && me.role === "observer"));
   document.querySelectorAll(".poker-card").forEach(b => {
     b.classList.toggle("sel", !!(me && me.hasVoted && b.dataset.v === me.revealedVote));
   });
