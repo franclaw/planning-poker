@@ -73,6 +73,37 @@ test.describe('Planning Poker — rooms', () => {
     await leave(guest);
   });
 
+  test('taken wives move to a separate section and cannot be picked', async ({ browser }) => {
+    const host = await browser.newPage();
+    const roomUrl = await createRoom(host);
+    await pickWife(host, 'Coco');
+
+    const guest = await browser.newPage();
+    await guest.goto(roomUrl);
+    await expect(guest.getByTestId('taken-wrap')).toBeVisible();
+    await expect(guest.locator('[data-testid="pick-taken"][data-first="Coco"]')).toHaveCount(1);
+    await expect(guest.locator('[data-testid="pick"][data-first="Coco"]')).toHaveCount(0);
+
+    // clicking a taken wife does nothing
+    await guest.locator('[data-testid="pick-taken"][data-first="Coco"]').click({ force: true });
+    await expect(guest.getByTestId('join-btn')).toBeDisabled();
+
+    // free wives still selectable; other rooms unaffected
+    await pickWife(guest, 'Betty');
+    await expect(host.getByTestId('boardroom')).toContainText('Betty');
+    const third = await browser.newPage();
+    await third.goto(roomUrl);
+    await expect(third.locator('[data-testid="pick-taken"]')).toHaveCount(2);
+    await leave(host);
+    await leave(guest);
+  });
+
+  test('rename: Jaqueline (Trekhaak services) replaces Dominique', async ({ page }) => {
+    await createRoom(page);
+    await expect(page.locator('[data-testid="pick"][data-first="Jaqueline"]')).toContainText('Trekhaak services');
+    await expect(page.getByRole('button', { name: /Dominique/ })).toHaveCount(0);
+  });
+
   test('two rooms stay isolated', async ({ browser }) => {
     const a = await browser.newPage();
     const b = await browser.newPage();

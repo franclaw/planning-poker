@@ -46,6 +46,10 @@
   }
   .pick:hover { transform: translateY(-1px); border-color: var(--rose-dim); }
   .pick.sel { border-color: var(--rose); background: #3a1a2a; box-shadow: 0 0 0 1px var(--rose) inset; }
+  .pick.taken { opacity: .45; filter: grayscale(.7); cursor: not-allowed; }
+  .pick.taken:hover { transform: none; border-color: #43263a; }
+  h2.taken-h { color: var(--muted); }
+  #takenWrap { margin-top: 14px; }
   .pick .ico { font-size: 1.5rem; }
   .pick .pic { width: 40px; height: 56px; object-fit: cover; object-position: top; border-radius: 6px; border: 1px solid #6b3a50; flex: 0 0 auto; }
   .pick .who .ttl { display: block; font-size: .72rem; color: var(--muted); font-style: italic; letter-spacing: .03em; }
@@ -149,7 +153,12 @@
     <div id="join" class="card hidden" data-testid="join-screen">
       <h2>Choose your Business Wife</h2>
       <div class="grid-names" id="nameGrid"></div>
+      <div id="takenWrap" class="hidden" data-testid="taken-wrap">
+        <h2 class="taken-h">Already in the boardroom</h2>
+        <div class="grid-names" id="takenGrid" data-testid="taken-grid"></div>
+      </div>
       <button class="join-btn" id="joinBtn" data-testid="join-btn" disabled>Enter the boardroom</button>
+      <div class="err" id="joinErr" data-testid="join-err"></div>
     </div>
 
     <div id="shareCard" class="card hidden" data-testid="share-card">
@@ -203,7 +212,7 @@ const ROSTER = [
   { icon: "⚖️", name: "Legal Counsel", first: "Charlotte", img: "/img/legal.png" },
   { icon: "💄", name: "The Negotiator", first: "Roxane", img: "/img/negotiator.png" },
   { icon: "☕", name: "Secretary", first: "Betty", img: "/img/secretary.png" },
-  { icon: "⛓️", name: "Power Broker", first: "Dominique", img: "/img/broker.png" },
+  { icon: "⛓️", name: "Trekhaak services", first: "Jaqueline", img: "/img/broker.png" },
   { icon: "🖊️", name: "Signature Artist", first: "Joséphine", img: "/img/signature.png" },
   { icon: "💅", name: "Interim CEO", first: "Catherine", img: "/img/interim-ceo.png" },
   { icon: "📈", name: "Growth Widow", first: "Gaby", img: "/img/growth.png" },
@@ -264,7 +273,7 @@ function setShare() {
 }
 
 // --- Join screen ---
-const grid = $("nameGrid");
+const pickBtns = {};
 ROSTER.forEach(r => {
   const b = document.createElement("button");
   b.className = "pick";
@@ -274,14 +283,38 @@ ROSTER.forEach(r => {
   b.innerHTML = `${picOrIcon(r, "pic")}<span class="who">${r.first} <span class="ttl">${r.name}</span></span>`;
   bindImgFallback(b);
   b.onclick = () => {
+    if (b.classList.contains("taken")) return;
     document.querySelectorAll(".pick").forEach(x => x.classList.remove("sel"));
     b.classList.add("sel");
     myPick = r;
     $("joinBtn").disabled = false;
   };
-  if (myPick && myPick.name === r.name) { b.classList.add("sel"); $("joinBtn").disabled = false; }
-  grid.appendChild(b);
+  pickBtns[r.name] = b;
+  $("nameGrid").appendChild(b);
 });
+function updateTaken(names) {
+  const taken = new Set(names);
+  const takenGrid = $("takenGrid");
+  let any = false;
+  ROSTER.forEach(r => {
+    const b = pickBtns[r.name];
+    if (taken.has(r.name)) {
+      if (!b.classList.contains("taken")) { b.classList.add("taken"); b.dataset.testid = "pick-taken"; }
+      takenGrid.appendChild(b);
+      any = true;
+      if (myPick && myPick.name === r.name && !myId) {
+        myPick = null;
+        b.classList.remove("sel");
+        $("joinBtn").disabled = true;
+      }
+    } else if (b.classList.contains("taken")) {
+      b.classList.remove("taken");
+      b.dataset.testid = "pick";
+      $("nameGrid").appendChild(b);
+    }
+  });
+  $("takenWrap").classList.toggle("hidden", !any);
+}
 
 $("createBtn").onclick = async () => {
   const res = await fetch("/api/rooms", { method: "POST" });
@@ -321,6 +354,12 @@ $("joinBtn").onclick = async () => {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(myPick),
   });
+  if (!res.ok) {
+    $("joinErr").textContent = "Someone just took her. Pick another.";
+    $("joinBtn").disabled = true;
+    refreshState();
+    return;
+  }
   const { id } = await res.json();
   myId = id;
   localStorage.setItem("sbw_id_" + roomId, id);
@@ -365,6 +404,7 @@ $("saveQ").onclick = () => api("/question", {
 // --- Live state ---
 function render(s) {
   lastState = s;
+  updateTaken(s.players.map(p => p.name));
   $("round").textContent = s.round;
   $("phaseBadge").textContent = s.phase === "revealed" ? "revealed" : s.phase === "voting" ? "voting" : "lobby";
   if (document.activeElement !== $("question")) $("question").value = s.question || "";

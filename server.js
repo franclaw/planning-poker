@@ -165,13 +165,12 @@ const server = http.createServer(async (req, res) => {
       if (!room) return json(res, 404, { error: 'room not found' });
       const { name, icon } = await readBody(req);
       if (!name || !icon) return json(res, 400, { error: 'name and icon required' });
-      let p = Object.values(room.players).find(
-        x => x.name.toLowerCase() === String(name).toLowerCase() && x.icon === icon
+      const taken = Object.values(room.players).find(
+        x => x.name.toLowerCase() === String(name).toLowerCase()
       );
-      if (!p) {
-        p = { id: crypto.randomUUID(), name: String(name).slice(0, 24), icon, vote: null, revealed: room.phase === 'revealed' };
-        room.players[p.id] = p;
-      }
+      if (taken) return json(res, 409, { error: 'taken' });
+      const p = { id: crypto.randomUUID(), name: String(name).slice(0, 24), icon, vote: null, revealed: room.phase === 'revealed' };
+      room.players[p.id] = p;
       broadcast(room);
       return json(res, 200, { id: p.id, roomId: room.id });
     }
